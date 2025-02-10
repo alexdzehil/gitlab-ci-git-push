@@ -3,26 +3,51 @@
 url=$1
 branch=$2
 
+# Проверка на наличие переменной окружения SSH_PRIVATE_KEY
 if [ -z "$SSH_PRIVATE_KEY" ]; then
 	>&2 echo "Set SSH_PRIVATE_KEY environment variable"
 	exit 1
 fi
 
+# Извлечение хоста из URL
 ssh_host=$(echo $url | sed 's/.*@//' | sed 's/[:/].*//')
 if [ -z "$ssh_host" ]; then
 	>&2 echo "Usage: $0 <user@git.host:project | ssh://user@git.host:port/project> [<branch>]"
 	exit 1
 fi
 
+# Если URL включает порт, извлекаем его
 ssh_port=
 if [[ $url =~ ^ssh://[^/]+:([0-9]+) ]]; then
-        ssh_port="-p ${BASH_REMATCH[1]}"
+    ssh_port="-p ${BASH_REMATCH[1]}"
 fi
+
+# Отладочная информация о хосте и порте
+echo "SSH host: $ssh_host"
+echo "SSH port: ${ssh_port:-default}"
 
 # TODO: skip on multiple runs
 mkdir -p ~/.ssh
 echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
 chmod 600 ~/.ssh/id_rsa
-ssh-keyscan -H $ssh_port "$ssh_host" >> ~/.ssh/known_hosts
 
+# Отладочная информация перед подключением SSH
+echo "Создан файл с ключом ~/.ssh/id_rsa"
+echo "Проверка хоста $ssh_host..."
+
+# Добавление хоста в known_hosts
+ssh-keyscan -H $ssh_host >> ~/.ssh/known_hosts
+
+# Отладочная информация о known_hosts
+echo "Содержимое ~/.ssh/known_hosts:"
+cat ~/.ssh/known_hosts
+
+# Попытка SSH подключения для проверки доступности
+echo "Пробуем подключиться к $ssh_host..."
+ssh -o StrictHostKeyChecking=no -v $ssh_port $ssh_host exit
+
+# Отправка изменений на репозиторий
+echo "Отправляем изменения на репозиторий..."
 git push $url ${CI_COMMIT_SHA:-HEAD}:refs/heads/${branch:-master} $([ -z "$DISABLE_FORCE_PUSH" ] && echo --force)
+
+echo "Git push завершен."
